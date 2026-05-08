@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardioViz — 3D Cardiac Anatomy</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<style>
+:root{
+  --bg:#050810;--s1:#080c18;--s2:#0c1220;
+  --b1:rgba(255,255,255,.06);--b2:rgba(255,255,255,.12);
+  --red:#e8203a;
+  --tx:#e0eaff;--tx2:#6b86aa;--tx3:#2b3d58;
+  --mono:'DM Mono',monospace;--sans:'Syne',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:var(--sans);color:var(--tx);display:flex;flex-direction:column}
+
+/* LOADER */
+#loader{
+  position:fixed;inset:0;z-index:999;background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;
+  transition:opacity .9s ease;
+}
+#loader.out{opacity:0;pointer-events:none}
+.l-icon{animation:hbeat 1.1s ease-in-out infinite}
+@keyframes hbeat{0%,100%{transform:scale(1)}15%{transform:scale(1.16)}30%{transform:scale(.97)}44%{transform:scale(1.08)}}
+.l-track{width:220px;height:1px;background:var(--b1);position:relative}
+.l-fill{height:1px;width:0;background:var(--red);transition:width .35s ease;position:relative}
+.l-fill::after{content:'';position:absolute;right:-2px;top:-2px;width:5px;height:5px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red)}
+.l-txt{font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;color:var(--tx3)}
+
+/* HEADER */
+header{
+  flex-shrink:0;height:54px;padding:0 22px;
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(5,8,16,.9);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--b1);position:relative;z-index:20;
+}
+.logo{display:flex;align-items:center;gap:11px}
+.logo-icon{animation:hbeat 1.1s ease-in-out infinite}
+.logo-name{font-size:.98rem;font-weight:800;letter-spacing:.07em;color:#fff}
+.logo-name em{color:var(--red);font-style:normal}
+.logo-sub{font-family:var(--mono);font-size:.56rem;letter-spacing:.14em;color:var(--tx3);margin-top:1px}
+.hcenter{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:3px}
+.tab{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;padding:5px 13px;border-radius:4px;cursor:pointer;color:var(--tx3);border:1px solid transparent;transition:all .15s}
+.tab:hover{color:var(--tx2)}
+.tab.on{color:var(--tx);background:rgba(255,255,255,.06);border-color:var(--b2)}
+.hright{display:flex;align-items:center;gap:10px}
+.award{display:flex;align-items:center;gap:6px;padding:3px 11px 3px 7px;border-radius:20px;background:rgba(232,32,58,.08);border:1px solid rgba(232,32,58,.18)}
+.award-star{color:var(--red);font-size:.65rem}
+.award-txt{font-family:var(--mono);font-size:.57rem;letter-spacing:.09em;color:#ff7080;white-space:nowrap}
+.api-row{display:flex;align-items:center;gap:7px}
+.api-lbl{font-family:var(--mono);font-size:.57rem;letter-spacing:.1em;color:var(--tx3)}
+#apikey{width:200px;padding:5px 9px;background:var(--s2);border:1px solid var(--b1);border-radius:4px;color:var(--tx);font-family:var(--mono);font-size:.63rem;outline:none;transition:border-color .15s}
+#apikey:focus{border-color:var(--b2)}
+#apikey::placeholder{color:var(--tx3)}
+
+/* STAGE */
+#stage{flex:1;position:relative;overflow:hidden}
+#c{display:block;width:100%;height:100%}
+.vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 80% 72% at 50% 50%,transparent 42%,rgba(5,8,16,.72) 100%)}
+
+/* LABELS */
+#lbl-layer{position:absolute;inset:0;pointer-events:none}
+.flbl{position:absolute;display:flex;align-items:center;pointer-events:all;cursor:pointer;transform:translate(-50%,-50%);transition:opacity .25s}
+.flbl-line{width:24px;height:1px;background:currentColor;opacity:.35;transition:all .2s}
+.flbl-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0;box-shadow:0 0 7px currentColor;animation:dpulse 2.4s ease-in-out infinite}
+@keyframes dpulse{0%,100%{opacity:1}50%{opacity:.4}}
+.flbl-name{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;white-space:nowrap;padding:3px 8px;background:rgba(5,8,16,.8);backdrop-filter:blur(4px);border-left:1.5px solid currentColor;color:#fff;transition:background .15s}
+.flbl:hover .flbl-line{width:32px;opacity:.7}
+.flbl:hover .flbl-name{background:rgba(14,22,42,.95)}
+.flbl.sel .flbl-dot{animation:none;width:7px;height:7px;opacity:1}
+.flbl.sel .flbl-line{opacity:1}
+
+.canvas-hint{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:.57rem;letter-spacing:.14em;color:var(--tx3);pointer-events:none;display:flex;gap:9px}
+.ch-sep{opacity:.3}
+
+/* INDEX */
+#idx{position:absolute;left:0;top:0;bottom:0;padding:18px 14px;display:flex;flex-direction:column;gap:2px;transition:opacity .3s}
+#idx.hidden{opacity:0;pointer-events:none}
+.idx-h{font-family:var(--mono);font-size:.53rem;letter-spacing:.18em;color:var(--tx3);margin-bottom:7px}
+.idx-row{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:4px;cursor:pointer;border:1px solid transparent;transition:all .15s}
+.idx-row:hover{background:rgba(255,255,255,.04);border-color:var(--b1)}
+.idx-row.sel{background:rgba(255,255,255,.06);border-color:var(--b2)}
+.idx-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.idx-lbl{font-family:var(--mono);font-size:.6rem;letter-spacing:.04em;color:var(--tx2)}
+.idx-row:hover .idx-lbl,.idx-row.sel .idx-lbl{color:var(--tx)}
+
+/* PANEL */
+#panel{position:absolute;right:0;top:0;bottom:0;width:385px;z-index:10;background:rgba(5,8,16,.94);backdrop-filter:blur(20px);border-left:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;transform:translateX(100%);transition:transform .5s cubic-bezier(.16,1,.3,1)}
+#panel.open{transform:translateX(0)}
+.p-hd{padding:18px 20px 16px;border-bottom:1px solid var(--b1);flex-shrink:0}
+.p-hd-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
+.p-close{width:28px;height:28px;border-radius:4px;cursor:pointer;flex-shrink:0;background:rgba(255,255,255,.04);border:1px solid var(--b1);display:flex;align-items:center;justify-content:center;font-size:.85rem;color:var(--tx3);transition:all .15s}
+.p-close:hover{color:var(--tx);background:rgba(255,255,255,.08)}
+.p-cat{display:inline-flex;align-items:center;gap:5px;margin-bottom:8px;padding:3px 10px 3px 6px;border-radius:3px;font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;border:1px solid}
+.p-cat-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.p-title{font-size:1.4rem;font-weight:800;color:#fff;line-height:1.15;margin-bottom:4px}
+.p-disease{font-family:var(--mono);font-size:.66rem;letter-spacing:.03em;color:var(--tx2);line-height:1.4}
+.p-bd{flex:1;overflow-y:auto;padding:16px 20px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent}
+.p-bd::-webkit-scrollbar{width:3px}
+.p-bd::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:2px}
+.sec{font-family:var(--mono);font-size:.53rem;letter-spacing:.2em;color:var(--tx3);margin-bottom:7px;display:flex;align-items:center;gap:9px}
+.sec::after{content:'';flex:1;height:1px;background:var(--b1)}
+.summary{font-size:.78rem;line-height:1.8;color:var(--tx2);margin-bottom:18px}
+.fact{display:flex;gap:11px;padding:10px 0;border-bottom:1px solid var(--b1);font-size:.72rem;line-height:1.65;color:var(--tx2)}
+.fact:last-child{border:none}
+.fact-n{font-family:var(--mono);font-size:.57rem;padding-top:3px;flex-shrink:0;width:16px}
+
+/* QUIZ */
+.p-quiz{border-top:1px solid var(--b1);padding:13px 20px 16px;flex-shrink:0;background:rgba(3,5,12,.5)}
+.q-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.q-lbl{font-family:var(--mono);font-size:.55rem;letter-spacing:.16em;color:var(--tx3)}
+.q-score{font-family:var(--mono);font-size:.6rem;padding:2px 8px;border-radius:3px;background:var(--s2);border:1px solid var(--b1);color:var(--tx2)}
+.q-score.good{color:#4ade80;border-color:rgba(74,222,128,.2)}
+.btn{width:100%;padding:8px;border-radius:4px;cursor:pointer;font-family:var(--mono);font-size:.63rem;letter-spacing:.07em;border:1px solid var(--b2);background:transparent;color:var(--tx2);transition:all .15s;text-align:center}
+.btn:hover{background:rgba(255,255,255,.05);color:var(--tx)}
+.btn.red{border-color:var(--red);color:var(--red)}
+.btn.red:hover{background:rgba(232,32,58,.1)}
+.q-txt{font-size:.74rem;line-height:1.72;color:var(--tx);margin-bottom:9px}
+.q-opts{display:flex;flex-direction:column;gap:4px;margin-bottom:7px}
+.q-opt{padding:7px 10px;text-align:left;cursor:pointer;background:var(--s2);border:1px solid var(--b1);border-radius:4px;font-family:var(--mono);font-size:.65rem;color:var(--tx2);transition:all .15s;line-height:1.4}
+.q-opt:hover:not(.locked){background:rgba(255,255,255,.07);border-color:var(--b2);color:var(--tx)}
+.q-opt.correct{background:#021509!important;border-color:#22c55e!important;color:#4ade80!important}
+.q-opt.wrong{background:#190305!important;border-color:var(--red)!important;color:#ff7080!important}
+.q-opt.locked{cursor:default}
+.q-fb{padding:9px 11px;border-radius:4px;font-family:var(--mono);font-size:.64rem;line-height:1.65;margin-bottom:7px}
+.q-fb.ok{background:#021509;border:1px solid rgba(34,197,94,.18);color:#4ade80}
+.q-fb.bad{background:#190305;border:1px solid rgba(232,32,58,.18);color:#ff7080}
+.q-fb p{margin-top:5px;color:var(--tx2);font-size:.62rem}
+.spin-row{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.63rem;color:var(--tx3);padding:3px 0}
+.spinner{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--b2);border-top-color:var(--red);animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <svg class="l-icon" width="58" height="58" viewBox="0 0 58 58" fill="none">
+    <path d="M29 50C29 50 5 36 5 20C5 12.3 11.3 6 19 6C23 6 26.6 7.8 29 10.8C31.4 7.8 35 6 39 6C46.7 6 53 12.3 53 20C53 36 29 50 29 50Z" fill="#e8203a"/>
+  </svg>
+  <div class="l-track"><div class="l-fill" id="lbar"></div></div>
+  <div class="l-txt" id="ltxt">INITIALIZING</div>
+</div>
+
+<header>
+  <div class="logo">
+    <svg class="logo-icon" width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <path d="M13 23C13 23 2 16 2 9.5C2 6.5 4.5 4 7.5 4C9.3 4 10.9 4.9 13 6.8C15.1 4.9 16.7 4 18.5 4C21.5 4 24 6.5 24 9.5C24 16 13 23 13 23Z" fill="#e8203a"/>
+    </svg>
+    <div>
+      <div class="logo-name">CARDIO<em>VIZ</em></div>
+      <div class="logo-sub">3D CARDIAC ANATOMY</div>
+    </div>
+  </div>
+  <div class="hcenter">
+    <div class="tab on" id="tab-explore" onclick="setTab('explore')">EXPLORE</div>
+    <div class="tab" id="tab-quiz" onclick="setTab('quiz')">QUIZ</div>
+  </div>
+  <div class="hright">
+    <div class="award">
+      <span class="award-star">★</span>
+      <span class="award-txt">BEST TECH TALK · WICHACKS @ RIT · MLH 2025</span>
+    </div>
+    <div class="api-row">
+      <span class="api-lbl">API</span>
+      <input id="apikey" type="password" placeholder="sk-ant-... (AI quiz)">
+    </div>
+  </div>
+</header>
+
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div class="vig"></div>
+  <div id="lbl-layer"></div>
+  <div id="idx"><div class="idx-h">STRUCTURES</div></div>
+  <div class="canvas-hint">DRAG TO ROTATE <span class="ch-sep">·</span> SCROLL TO ZOOM <span class="ch-sep">·</span> CLICK A STRUCTURE</div>
+  <div id="panel">
+    <div class="p-hd">
+      <div class="p-hd-top">
+        <div>
+          <div class="p-cat" id="p-cat"><div class="p-cat-dot" id="p-cat-dot"></div><span id="p-cat-txt"></span></div>
+          <div class="p-title" id="p-title"></div>
+          <div class="p-disease" id="p-disease"></div>
+        </div>
+        <div class="p-close" onclick="closePanel()">✕</div>
+      </div>
+    </div>
+    <div class="p-bd" id="p-body"></div>
+    <div class="p-quiz">
+      <div class="q-top"><span class="q-lbl">AI ADAPTIVE TUTOR</span><span class="q-score" id="q-score"></span></div>
+      <div id="q-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STRUCTS = {
+  lv:{name:'Left Ventricle',short:'L. Ventricle',color:'#E8203A',tag:'PUMP CHAMBER',disease:'Hypertrophic Cardiomyopathy (HCM)',anchor:[-1.8,-0.4,1.6],
+    summary:'The dominant muscular chamber ejecting oxygenated blood into the systemic circulation at pressures reaching 120 mmHg. Normal wall thickness is 6–12 mm. In HCM, sarcomere gene mutations cause pathological hypertrophy — most commonly of the basal septum — obstructing outflow and impairing diastolic filling.',
+    facts:['HCM affects approximately 1 in 500 individuals globally — the most common inherited cardiac disease','Over 1,500 pathogenic variants identified across 11 sarcomere genes; MYH7 and MYBPC3 are most common','Dynamic LVOT obstruction from asymmetric septal hypertrophy creates gradients exceeding 30 mmHg','Systolic anterior motion (SAM) of the anterior mitral leaflet amplifies obstruction and causes MR','Leading cause of sudden cardiac death in competitive athletes under age 35 worldwide']},
+  rv:{name:'Right Ventricle',short:'R. Ventricle',color:'#FF5370',tag:'PULMONARY PUMP',disease:'Arrhythmogenic Cardiomyopathy (ACM)',anchor:[2.0,-0.4,1.5],
+    summary:'A thin-walled crescent-shaped chamber pumping against the low-resistance pulmonary circuit. In ACM, mutations in desmosomal proteins (PKP2, DSP, DSG2) cause cardiomyocyte death and fibrofatty replacement, creating pro-arrhythmic substrates responsible for exercise-triggered sudden death.',
+    facts:['ACM is caused by desmosomal gene mutations in ~60% of familial cases — autosomal dominant','Fibrofatty infiltration follows the "triangle of dysplasia": RVOT, apex, and subtricuspid region','Epsilon wave in V1–V3 represents delayed activation of fibrofatty-replaced myocardium','Exercise dramatically accelerates disease progression — sport is absolutely contraindicated','ICD implantation is the only proven mortality-reducing therapy in high-risk patients']},
+  la:{name:'Left Atrium',short:'L. Atrium',color:'#FF784C',tag:'PULMONARY RESERVOIR',disease:'Cor Triatriatum Sinister',anchor:[-2.0,1.1,0.4],
+    summary:'Receives oxygenated blood from all four pulmonary veins. In cor triatriatum, a fibromuscular membrane divides the chamber into a proximal pulmonary venous component and a distal true atrium, obstructing venous return and producing hemodynamics indistinguishable from mitral stenosis.',
+    facts:['Cor triatriatum sinister occurs in fewer than 0.1% of all congenital heart defects','Results from failure of the common pulmonary vein to incorporate into the left atrial wall','The membrane creates two chambers — its perforation size determines hemodynamic severity','Presents with pulmonary venous hypertension, right heart failure, and dyspnea','Surgical excision via cardiopulmonary bypass is curative in over 95% of cases']},
+  ra:{name:'Right Atrium',short:'R. Atrium',color:'#FFAB40',tag:'SYSTEMIC RETURN',disease:'Atrial Septal Defect (ASD)',anchor:[2.0,1.1,0.4],
+    summary:'Receives systemic venous return from the SVC, IVC, and coronary sinus. The thin fossa ovalis is the most common site of congenital defects. An ASD creates left-to-right shunting that progressively volume-overloads the right heart over decades, ultimately causing pulmonary hypertension.',
+    facts:['Ostium secundum ASD accounts for ~70% of all ASDs — centrally located at the fossa ovalis','Shunting generates Qp:Qs ratios up to 4:1 in large unrepaired defects','Fixed splitting of S2 is pathognomonic — right heart volume overload prevents respiratory variation','Paradoxical embolism through the ASD is a recognized cause of cryptogenic stroke','Transcatheter Amplatzer device closure achieves >95% success for secundum defects']},
+  ao:{name:'Aorta',short:'Aorta',color:'#C77DFF',tag:'GREAT VESSEL',disease:'Marfan Syndrome',anchor:[-1.0,2.6,0.8],
+    summary:'The largest systemic artery, arising from the left ventricle and arching to distribute blood throughout the body. Its elastic media acts as a Windkessel, buffering systolic pressure. Marfan syndrome (FBN1 mutations) impairs fibrillin-1, dysregulates TGF-β, and progressively weakens the aortic wall.',
+    facts:['Marfan syndrome affects 1 in 5,000 individuals — autosomal dominant with complete penetrance','FBN1 mutations dysregulate TGF-β signaling and upregulate matrix metalloproteinases','Aortic root dilatation at the sinuses of Valsalva occurs in over 70% of affected adults','Prophylactic root replacement recommended when diameter exceeds 45–50 mm','Losartan independently attenuates TGF-β signaling beyond its antihypertensive effects']},
+  pa:{name:'Pulmonary Artery',short:'Pulm. Artery',color:'#29B6F6',tag:'PULMONARY CIRCUIT',disease:'Pulmonary Arterial Hypertension',anchor:[1.2,2.6,0.8],
+    summary:'Carries deoxygenated blood from the right ventricle to the pulmonary capillary bed. Normal mean PA pressure is 8–20 mmHg. PAH triggers progressive endothelial dysfunction, vasoconstriction, smooth muscle proliferation, and in-situ thrombosis — raising PVR and forcing the right ventricle toward failure.',
+    facts:['PAH prevalence is 15–50 per million population — classified as WHO Group 1','Endothelin-1, prostacyclin, and nitric oxide pathways are all dysregulated in PAH','Right ventricular failure — not pulmonary vascular disease — is the direct cause of death','Triple oral therapy reduces clinical worsening events by approximately 40% vs. monotherapy','Lung transplantation remains the only curative option; 5-year post-transplant survival ~60%']},
+  cor:{name:'Coronary Arteries',short:'Coronaries',color:'#FF9100',tag:'MYOCARDIAL SUPPLY',disease:'Spontaneous Coronary Artery Dissection',anchor:[0.3,0.1,2.2],
+    summary:'The left and right coronary arteries arise from the aortic sinuses of Valsalva to supply the myocardium. SCAD is a non-atherosclerotic intimal tear creating an intramural hematoma that compresses the true lumen, causing MI in otherwise healthy young women.',
+    facts:['SCAD causes approximately 35% of myocardial infarctions in women under age 50','Fibromuscular dysplasia is found in ~72% of SCAD patients at systemic workup','The LAD is involved in ~70% of events due to its length and mechanical stress','PCI is hazardous in SCAD — dissection propagates and wire placement is unreliable','Conservative management results in spontaneous healing in over 90% at follow-up angiography']}
+};
+
+const FALLBACKS = {
+  lv:{q:"In HCM, what primarily causes dynamic LVOT obstruction?",opts:["A) Fixed aortic valve stenosis","B) SAM of the mitral valve contacting the hypertrophied septum","C) Papillary muscle rupture","D) Aortic root dilatation"],ans:"B",exp:"Dynamic LVOT obstruction in HCM results from systolic anterior motion (SAM) of the anterior mitral leaflet contacting the hypertrophied basal septum. The Venturi effect from high-velocity LVOT flow draws the leaflet anteriorly. This gradient worsens with reduced preload, reduced afterload, and increased contractility."},
+  rv:{q:"Which gene is most commonly mutated in familial ACM?",opts:["A) KCNQ1","B) SCN5A","C) PKP2 (plakophilin-2)","D) LMNA"],ans:"C",exp:"PKP2, encoding plakophilin-2, accounts for 25-40% of familial ACM cases. This desmosomal protein is critical for cardiomyocyte adhesion. Loss-of-function leads to cell detachment under mechanical stress, apoptosis, and fibrofatty replacement — predominantly in the right ventricle."},
+  la:{q:"What embryological failure causes Cor Triatriatum Sinister?",opts:["A) Truncus arteriosus malseptation","B) Failure of the common pulmonary vein to incorporate into the left atrium","C) Persistence of the left SVC","D) Incomplete foramen ovale closure"],ans:"B",exp:"Normally, the common pulmonary vein incorporates into the posterior left atrial wall during embryogenesis. Failure of this process leaves a fibromuscular membrane dividing the left atrium into a posterior pulmonary venous chamber and an anterior true atrium containing the mitral valve."},
+  ra:{q:"Why does a large ASD cause fixed splitting of S2?",opts:["A) Aortic valve calcification","B) Constant right heart volume overload prevents respiratory variation in pulmonic closure","C) Left bundle branch block","D) Pulmonary valve stenosis"],ans:"B",exp:"Normally S2 splits on inspiration as increased venous return delays pulmonic closure. In a large ASD, the constant left-to-right shunt keeps the right heart volume-overloaded throughout the respiratory cycle, so pulmonic closure is always delayed by the same amount — producing fixed splitting."},
+  ao:{q:"How does losartan slow aortic dilatation in Marfan syndrome beyond blood pressure reduction?",opts:["A) Direct FBN1 gene repair","B) TGF-β pathway attenuation in the aortic media","C) Endothelin-1 inhibition","D) Collagen cross-linking stimulation"],ans:"B",exp:"FBN1 mutations release excess active TGF-β from the extracellular matrix, upregulating MMPs and driving smooth muscle apoptosis in the aortic media. Losartan attenuates TGF-β signaling through AT1 receptor blockade — a mechanism independent of its antihypertensive effect."},
+  pa:{q:"Which pathway do PDE-5 inhibitors target in PAH?",opts:["A) Prostacyclin/cAMP","B) Endothelin receptor","C) Nitric oxide/cGMP","D) Angiotensin-converting enzyme"],ans:"C",exp:"PDE-5 inhibitors (sildenafil, tadalafil) prevent degradation of cyclic GMP in pulmonary arterial smooth muscle, causing vasodilation and anti-proliferative effects. cGMP is produced when nitric oxide activates soluble guanylate cyclase. The three PAH targeted pathways are: prostacyclin, endothelin receptor, and NO-cGMP."},
+  cor:{q:"Why is PCI generally avoided in SCAD management?",opts:["A) Coronary arteries are too small","B) Antiplatelet drugs are contraindicated","C) The wire enters the false lumen and balloon inflation extends the dissection","D) SCAD lesions are calcified and non-dilatable"],ans:"C",exp:"In SCAD, an intramural hematoma creates a false lumen. During PCI the guidewire frequently enters this false lumen. Balloon inflation can propagate the dissection further, and stents may not appose correctly. Over 90% of SCAD lesions heal spontaneously with conservative management."}
+};
+
+/* THREE.JS */
+const canvasEl = document.getElementById('c');
+const stageEl  = document.getElementById('stage');
+
+const renderer = new THREE.WebGLRenderer({canvas:canvasEl, antialias:true, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+renderer.physicallyCorrectLights = true;
+renderer.setClearColor(0x050810,1);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x050810, 0.045);
+
+const camera = new THREE.PerspectiveCamera(38,1,0.01,100);
+camera.position.set(0,0.6,7.8);
+
+/* FIX 1 — no controls._isPointerDown */
+const controls = new THREE.OrbitControls(camera, canvasEl);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.minDistance = 3;
+controls.maxDistance = 14;
+controls.target.set(0,0.3,0);
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.5;
+
+let pointerMoved = false;
+canvasEl.addEventListener('pointerdown', () => { pointerMoved = false; });
+canvasEl.addEventListener('pointermove', () => { pointerMoved = true; });
+
+/* Lights */
+scene.add(new THREE.HemisphereLight(0x1a2f5a,0x08090f,0.9));
+const kl = new THREE.DirectionalLight(0xfff4ee,2.2); kl.position.set(5,6,7); scene.add(kl);
+const fl = new THREE.DirectionalLight(0x3355aa,0.55); fl.position.set(-5,-2,3); scene.add(fl);
+const bl = new THREE.DirectionalLight(0x001133,0.6);  bl.position.set(0,-1,-7); scene.add(bl);
+const redGlow = new THREE.PointLight(0xff1020,3.0,6); redGlow.position.set(-1.5,-0.5,3.5); scene.add(redGlow);
+const bl2 = new THREE.PointLight(0x0044bb,1.1,9); bl2.position.set(3,2,3); scene.add(bl2);
+const tl  = new THREE.PointLight(0xfff0e0,0.85,10); tl.position.set(0,8,2); scene.add(tl);
+
+/* Particles */
+{const g=new THREE.BufferGeometry(),p=new Float32Array(900*3);for(let i=0;i<p.length;i++)p[i]=(Math.random()-.5)*32;g.setAttribute('position',new THREE.BufferAttribute(p,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x0f1e3a,size:.06,sizeAttenuation:true})));}
+
+let heartGroup = null;
+const anchorVecs = {};
+Object.entries(STRUCTS).forEach(([id,d]) => { anchorVecs[id] = new THREE.Vector3(...d.anchor); });
+
+function setLoad(pct,msg){document.getElementById('lbar').style.width=pct+'%';document.getElementById('ltxt').textContent=msg;}
+setLoad(5,'LOADING MODEL');
+
+new THREE.GLTFLoader().load('heart.glb',
+  gltf => {
+    setLoad(82,'BUILDING SCENE');
+    const box=new THREE.Box3().setFromObject(gltf.scene);
+    const ctr=box.getCenter(new THREE.Vector3());
+    const sz=box.getSize(new THREE.Vector3());
+    const sc=3.2/Math.max(sz.x,sz.y,sz.z);
+    gltf.scene.position.sub(ctr.multiplyScalar(sc));
+    gltf.scene.scale.setScalar(sc);
+    gltf.scene.rotation.set(0.04,0.1,-0.08);
+
+    /* FIX 2 — mutate existing material, don't recreate */
+    gltf.scene.traverse(obj=>{
+      if(!obj.isMesh||!obj.material) return;
+      const m=obj.material;
+      m.metalness=0.1; m.roughness=0.55; m.envMapIntensity=0.8;
+      if(m.normalMap) m.normalScale.set(1.3,1.3);
+      m.needsUpdate=true;
+    });
+
+    heartGroup=new THREE.Group();
+    heartGroup.add(gltf.scene);
+    scene.add(heartGroup);
+    setLoad(100,'READY');
+    setTimeout(()=>{document.getElementById('loader').classList.add('out');buildIndex();buildLabels();},400);
+  },
+  xhr=>{const p=5+(xhr.loaded/(xhr.total||1))*72;setLoad(Math.round(p),'LOADING '+Math.round(p/0.77)+'%');},
+  err=>{console.error(err);setLoad(100,'ERROR');setTimeout(()=>document.getElementById('loader').classList.add('out'),800);}
+);
+
+function resize(){const w=stageEl.clientWidth,h=stageEl.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
+resize(); window.addEventListener('resize',resize);
+
+let T=0;
+function animate(){
+  requestAnimationFrame(animate);controls.update();T+=0.024;
+  const lub=Math.pow(Math.max(0,Math.sin(T*2.1)),6)*.042;
+  const dub=Math.pow(Math.max(0,Math.sin(T*2.1-1.22)),6)*.026;
+  const beat=lub+dub;
+  if(heartGroup){const s=1+beat;heartGroup.scale.set(s,s,s);}
+  redGlow.intensity=2.7+beat*9;
+  tickLabels();renderer.render(scene,camera);
+}
+animate();
+
+/* RAYCASTER */
+const RC=new THREE.Raycaster(), MV=new THREE.Vector2();
+
+canvasEl.addEventListener('click',e=>{
+  if(pointerMoved) return; // FIX 1 — skip clicks that were actually drags
+  const r=canvasEl.getBoundingClientRect();
+  MV.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
+  RC.setFromCamera(MV,camera);
+  if(!heartGroup) return;
+  const hits=RC.intersectObject(heartGroup,true);
+  if(!hits.length) return;
+  /* FIX 3 — apply heartGroup.matrixWorld to anchors before distance comparison */
+  const hp=hits[0].point;
+  let best=null,bestD=Infinity;
+  Object.entries(anchorVecs).forEach(([id,v])=>{
+    const w=v.clone().applyMatrix4(heartGroup.matrixWorld);
+    const d=hp.distanceTo(w);
+    if(d<bestD){bestD=d;best=id;}
+  });
+  if(best){openPanel(best);controls.autoRotate=false;}
+});
+
+canvasEl.addEventListener('mousemove',e=>{
+  const r=canvasEl.getBoundingClientRect();
+  MV.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
+  RC.setFromCamera(MV,camera);
+  canvasEl.style.cursor=(heartGroup&&RC.intersectObject(heartGroup,true).length)?'pointer':'grab';
+});
+
+/* LABELS */
+const lblLayer=document.getElementById('lbl-layer');
+const lblEls={};
+const _p=new THREE.Vector3();
+
+function buildLabels(){
+  lblLayer.innerHTML='';
+  Object.entries(STRUCTS).forEach(([id,d])=>{
+    const el=document.createElement('div');
+    el.className='flbl';el.style.color=d.color;
+    el.innerHTML=`<div class="flbl-line"></div><div class="flbl-dot"></div><div class="flbl-name">${d.short.toUpperCase()}</div>`;
+    el.addEventListener('click',()=>{openPanel(id);controls.autoRotate=false;});
+    lblLayer.appendChild(el);lblEls[id]=el;
+  });
+}
+
+function tickLabels(){
+  if(!heartGroup) return;
+  const W=stageEl.clientWidth,H=stageEl.clientHeight;
+  Object.entries(STRUCTS).forEach(([id,d])=>{
+    const el=lblEls[id];if(!el) return;
+    /* FIX 3 (labels) — transform anchor by heartGroup matrix */
+    _p.set(...d.anchor).applyMatrix4(heartGroup.matrixWorld);
+    _p.project(camera);
+    const x=(_p.x+1)/2*W, y=(-_p.y+1)/2*H;
+    el.style.opacity=(_p.z>1||x<5||x>W-5||y<5||y>H-5)?'0':'1';
+    el.style.left=x+'px'; el.style.top=y+'px';
+    el.classList.toggle('sel',id===currentId);
+  });
+}
+
+/* INDEX */
+function buildIndex(){
+  const idx=document.getElementById('idx');
+  Object.entries(STRUCTS).forEach(([id,d])=>{
+    const row=document.createElement('div');
+    row.className='idx-row';row.id='ir-'+id;
+    row.innerHTML=`<div class="idx-dot" style="background:${d.color}"></div><div class="idx-lbl">${d.short}</div>`;
+    row.addEventListener('click',()=>{openPanel(id);controls.autoRotate=false;});
+    idx.appendChild(row);
+  });
+}
+
+/* PANEL */
+let currentId=null;
+function h2r(hex,a){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return `rgba(${r},${g},${b},${a})`;}
+
+function openPanel(id){
+  currentId=id; const d=STRUCTS[id];
+  document.querySelectorAll('.idx-row').forEach(r=>r.classList.toggle('sel',r.id==='ir-'+id));
+  const cat=document.getElementById('p-cat');
+  cat.style.background=h2r(d.color,.1);cat.style.borderColor=h2r(d.color,.26);cat.style.color=d.color;
+  document.getElementById('p-cat-dot').style.background=d.color;
+  document.getElementById('p-cat-txt').textContent=d.tag;
+  document.getElementById('p-title').textContent=d.name;
+  const dis=document.getElementById('p-disease');dis.innerHTML='';
+  const s=document.createElement('strong');s.style.color=d.color;s.textContent=d.disease;dis.appendChild(s);
+  document.getElementById('p-body').innerHTML=
+    '<div class="sec">ANATOMY</div>'+
+    `<div class="summary">${d.summary}</div>`+
+    '<div class="sec">CLINICAL NOTES</div>'+
+    d.facts.map((f,i)=>`<div class="fact"><div class="fact-n" style="color:${d.color}">0${i+1}</div><div>${f}</div></div>`).join('');
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('idx').classList.add('hidden');
+  resetQuiz(id);
+}
+
+function closePanel(){
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('idx').classList.remove('hidden');
+  currentId=null;
+  document.querySelectorAll('.idx-row').forEach(r=>r.classList.remove('sel'));
+  controls.autoRotate=true;
+}
+
+/* QUIZ */
+let QS={c:0,t:0}, wrongLog=[], quizId=null, pendingQ=null;
+
+function resetQuiz(id){
+  quizId=id;pendingQ=null;
+  document.getElementById('q-score').textContent='';
+  const btn=document.createElement('button');
+  btn.className='btn red';btn.textContent='START QUIZ — '+STRUCTS[id].name.toUpperCase();
+  btn.onclick=startQuiz;
+  const w=document.getElementById('q-wrap');w.innerHTML='';w.appendChild(btn);
+}
+
+function updateScore(){
+  const el=document.getElementById('q-score');
+  if(!QS.t){el.textContent='';return;}
+  el.textContent=`${QS.c}/${QS.t}`;
+  el.className='q-score'+(QS.c/QS.t>=0.7?' good':'');
+}
+
+async function startQuiz(){
+  if(!quizId) return;
+  const w=document.getElementById('q-wrap');
+  w.innerHTML='<div class="spin-row"><div class="spinner"></div>Generating question…</div>';
+  const key=document.getElementById('apikey').value.trim();
+  pendingQ=key?await fetchQ(quizId,key):FALLBACKS[quizId];
+  renderQ(pendingQ);
+}
+
+async function fetchQ(id,key){
+  const d=STRUCTS[id];
+  const ctx=wrongLog.length?'Student previously missed: '+wrongLog.slice(-3).join('; ')+'.':'';
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-allow-browser':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:900,
+        messages:[{role:'user',content:`Clinical cardiology MCQ generator. One correct answer, three evidence-based distractors.
+Structure: ${d.name} | Condition: ${d.disease}
+Facts: ${d.facts.join(' | ')}
+${ctx}
+Return ONLY valid JSON: {"q":"...","opts":["A) ...","B) ...","C) ...","D) ..."],"ans":"A","exp":"..."}`}]})
+    });
+    const data=await res.json();
+    return JSON.parse(data.content[0].text.trim().replace(/^```json|```$/g,'').trim());
+  }catch(e){console.warn('API error:',e);return FALLBACKS[id];}
+}
+
+function renderQ(q){
+  const w=document.getElementById('q-wrap');
+  w.innerHTML='';
+  const qtxt=document.createElement('div');qtxt.className='q-txt';qtxt.textContent=q.q;w.appendChild(qtxt);
+  const opts=document.createElement('div');opts.className='q-opts';
+  q.opts.forEach((o,i)=>{
+    const btn=document.createElement('button');
+    btn.className='q-opt';btn.textContent=o;
+    btn.addEventListener('click',()=>handleAnswer(i));
+    opts.appendChild(btn);
+  });
+  w.appendChild(opts);
+  w.appendChild(document.createElement('div')).id='q-fb'; // FIX 4
+}
+
+/* FIX 4 — no onclick strings with embedded text; pure DOM manipulation */
+function handleAnswer(idx){
+  if(!pendingQ) return;
+  const q=pendingQ;
+  const chosen=q.opts[idx][0];
+  const correct=q.ans;
+  const ok=chosen===correct;
+  document.querySelectorAll('.q-opt').forEach((btn,i)=>{
+    btn.classList.add('locked');
+    if(i===idx) btn.classList.add(ok?'correct':'wrong');
+    else if(q.opts[i][0]===correct) btn.classList.add('correct');
+  });
+  QS.t++;if(ok)QS.c++;
+  else{const t=STRUCTS[quizId].name+' — '+q.q.slice(0,55);wrongLog=[...wrongLog.filter(w=>w!==t),t].slice(-5);}
+  updateScore();
+  const fb=document.getElementById('q-fb');
+  fb.innerHTML='';
+  const box=document.createElement('div');box.className='q-fb '+(ok?'ok':'bad');
+  box.textContent=ok?'✓ Correct':'✗ Incorrect';
+  const exp=document.createElement('p');exp.textContent=q.exp;box.appendChild(exp);
+  fb.appendChild(box);
+  const next=document.createElement('button');next.className='btn';next.textContent='NEXT QUESTION';
+  next.style.marginTop='6px';next.onclick=startQuiz;fb.appendChild(next);
+}
+
+function setTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  document.getElementById('tab-'+name).classList.add('on');
+  if(name==='quiz'&&currentId) startQuiz();
+}
+
+window.closePanel=closePanel;
+window.startQuiz=startQuiz;
+window.setTab=setTab;
+</script>
+</body>
+</html>
